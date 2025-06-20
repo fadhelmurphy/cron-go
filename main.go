@@ -5,10 +5,8 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -36,26 +34,15 @@ func stopBackground(pidStr string) error {
 		return fmt.Errorf("invalid PID: %v", err)
 	}
 
-	if runtime.GOOS == "windows" {
-		// Use taskkill
-		cmd := exec.Command("taskkill", "/PID", pidStr, "/F")
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("taskkill failed: %v - %s", err, string(output))
-		}
-	} else {
-		proc, err := os.FindProcess(pid)
-		if err != nil {
-			return fmt.Errorf("failed to find process: %v", err)
-		}
-		err = proc.Signal(syscall.SIGTERM)
-		if err != nil {
-			return fmt.Errorf("failed to send SIGTERM: %v", err)
-		}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("failed to find process: %v", err)
 	}
 
-	// Clean up pid file
-	os.Remove("cron-go.pid")
+	err = proc.Kill()
+	if err != nil {
+		return fmt.Errorf("failed to kill process: %v", err)
+	}
 
 	return nil
 }
@@ -100,11 +87,11 @@ func runSingleJob(jobStr string) {
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println(`Usage:
-  cron-go [-d] <config.yaml>
-  cron-go [-d] "<cron_expr>" "<command>"
-  cron-go [-d] "<cron_expr> <command>"   # combined
-  cron-go stop "<pid>"
-  `)
+			cron-go [-d] <config.yaml>
+			cron-go [-d] "<cron_expr>" "<command>"
+			cron-go [-d] "<cron_expr> <command>"   # combined
+			cron-go stop "<pid>"
+	`)
 		os.Exit(1)
 	}
 
@@ -117,7 +104,6 @@ func main() {
 		i++
 	}
 
-	// Stop command
 	if args[i] == "stop" && len(args) > i+1 && args[i+1] != "" {
 		if err := stopBackground(args[i+1]); err != nil {
 			fmt.Printf("Failed to stop cron: %v\n", err)
@@ -131,14 +117,12 @@ func main() {
 
 	remaining := args[i:]
 	if len(remaining) >= 2 {
-		// Treat as cron expr + command
 		jobExpr = remaining[0]
 		jobCmd = strings.Join(remaining[1:], " ")
 	} else if len(remaining) == 1 {
 		if strings.HasSuffix(remaining[0], ".yaml") {
 			cfgPath = remaining[0]
 		} else {
-			// Treat as combined cron expr + cmd
 			combinedJob = remaining[0]
 		}
 	} else {
@@ -146,7 +130,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Background launching
 	if runAsDaemon {
 		if jobExpr != "" && jobCmd != "" {
 			jobStr := fmt.Sprintf("%s %s", jobExpr, jobCmd)
@@ -162,7 +145,6 @@ func main() {
 		return
 	}
 
-	// Foreground running
 	if jobExpr != "" && jobCmd != "" {
 		jobStr := fmt.Sprintf("%s %s", jobExpr, jobCmd)
 		runSingleJob(jobStr)
@@ -207,8 +189,10 @@ func runScheduler(cfgPath string) {
 			}
 		}
 
-		time.Sleep(time.Second * 30)
+		next := now.Truncate(time.Minute).Add(time.Minute)
+		time.Sleep(time.Until(next))
 	}
+
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -300,35 +284,54 @@ func parseField(field string, min, max int) (map[int]bool, error) {
 	return result, nil
 }
 
-func runCommand(scheduleStr string,cmdStr string) {
-	var shell string
-	var args []string
+func runCommand(scheduleStr string, cmdStr string) {
+	go func() {
+		logFile, err := os.OpenFile("cron-output.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Printf("Failed to open log file: %v\n", err)
+			return
+		}
+		defer logFile.Close()
 
-	if runtime.GOOS == "windows" {
-		shell = "cmd"
-		args = []string{"/C", cmdStr}
-	} else {
-		shell = "sh"
-		args = []string{"-c", cmdStr}
-	}
+		fields := strings.Fields(cmdStr)
+		if len(fields) == 0 {
+			logLine := fmt.Sprintf("[%s] Invalid command: empty\n", time.Now().Format(time.RFC3339))
+			logFile.WriteString(logLine)
+			return
+		}
 
-	proc := exec.Command(shell, args...)
+		cmdName := fields[0]
+		cmdArgs := fields[1:]
 
-	logFile, err := os.OpenFile("cron-output.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		fmt.Printf("Failed to open log file: %v\n", err)
-		return
-	}
-	defer logFile.Close()
+		proc := exec.Command(cmdName, cmdArgs...)
 
-	logLine := fmt.Sprintf("[%s] PID: %d Schedule: %s Running: %s\n", time.Now().Format(time.RFC3339), os.Getpid(), scheduleStr, cmdStr)
-	logFile.WriteString(logLine)
+		// Output command
+		// proc.Stdout = logFile
+		// proc.Stderr = logFile
 
-	err = proc.Run()
-	if err != nil {
-		logFile.WriteString(fmt.Sprintf("[%s] PID: %d Command failed: %v\n",
-			time.Now().Format(time.RFC3339), os.Getpid(), err))
-	}
+		err = proc.Start()
+		if err != nil {
+			logFile.WriteString(fmt.Sprintf("[%s] Parent PID: %d PID: N/A Schedule: %s Command failed to start: %v\n",
+				time.Now().Format(time.RFC3339), os.Getpid(), scheduleStr, err))
+			return
+		}
+
+		childPid := proc.Process.Pid
+		parentPid := os.Getpid()
+
+		logLine := fmt.Sprintf("[%s] Parent PID: %d PID: %d Schedule: %s Running: %s\n",
+			time.Now().Format(time.RFC3339), parentPid, childPid, scheduleStr, cmdStr)
+		logFile.WriteString(logLine)
+		fmt.Print(logLine)
+
+		err = proc.Wait()
+		if err != nil {
+			logFile.WriteString(fmt.Sprintf("[%s] Parent PID: %d PID: %d Command failed: %v\n",
+				time.Now().Format(time.RFC3339), parentPid, childPid, err))
+		}
+	}()
 }
+
+
 
 
