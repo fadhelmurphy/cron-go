@@ -30,10 +30,11 @@ func launchBackground(cfgPath []string) error {
 	}
 
 	pid := cmd.Process.Pid
-	err = os.WriteFile("cron-go.pid", []byte(fmt.Sprintf("%d", pid)), 0644)
-	if err != nil {
-		fmt.Printf("Failed to write PID file: %v\n", err)
-	}
+	// pid_file := "cron-go-" + fmt.Sprintf("%d", pid)
+	// err = os.WriteFile(fmt.Sprintf("%s.pid", pid_file), []byte(fmt.Sprintf("%d", pid)), 0644)
+	// if err != nil {
+	// 	fmt.Printf("Failed to write PID file: %v\n", err)
+	// }
 	fmt.Printf("Started in background. PID: %d\n", pid)
 	return nil
 }

@@ -29,12 +29,8 @@ type ParsedJob struct {
 	Schedule  string
 	Command   string
 }
-func stopBackground() error {
-	data, err := os.ReadFile("cron-go.pid")
-	if err != nil {
-		return fmt.Errorf("could not read PID file: %v", err)
-	}
-	pidStr := strings.TrimSpace(string(data))
+func stopBackground(pidStr string) error {
+	pidStr = strings.TrimSpace(pidStr)
 	pid, err := strconv.Atoi(pidStr)
 	if err != nil {
 		return fmt.Errorf("invalid PID: %v", err)
@@ -107,7 +103,8 @@ func main() {
   cron-go [-d] <config.yaml>
   cron-go [-d] "<cron_expr>" "<command>"
   cron-go [-d] "<cron_expr> <command>"   # combined
-  cron-go stop`)
+  cron-go stop "<pid>"
+  `)
 		os.Exit(1)
 	}
 
@@ -121,8 +118,8 @@ func main() {
 	}
 
 	// Stop command
-	if len(args)-i == 1 && args[i] == "stop" {
-		if err := stopBackground(); err != nil {
+	if args[i] == "stop" && len(args) > i+1 && args[i+1] != "" {
+		if err := stopBackground(args[i+1]); err != nil {
 			fmt.Printf("Failed to stop cron: %v\n", err)
 			os.Exit(1)
 		}
