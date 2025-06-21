@@ -311,23 +311,23 @@ func runCommand(scheduleStr string, cmdStr string) {
 
 		err = proc.Start()
 		if err != nil {
-			logFile.WriteString(fmt.Sprintf("[%s] Parent PID: %d PID: N/A Schedule: %s Command failed to start: %v\n",
+			logFile.WriteString(fmt.Sprintf("[%s] PID: %d PID: N/A Schedule: %s Command failed to start: %v\n",
 				time.Now().Format(time.RFC3339), os.Getpid(), scheduleStr, err))
 			return
 		}
 
-		childPid := proc.Process.Pid
-		parentPid := os.Getpid()
+		// childPid := proc.Process.Pid
+		pid := os.Getpid()
 
-		logLine := fmt.Sprintf("[%s] Parent PID: %d PID: %d Schedule: %s Running: %s\n",
-			time.Now().Format(time.RFC3339), parentPid, childPid, scheduleStr, cmdStr)
+		logLine := fmt.Sprintf("[%s] PID: %d Schedule: %s Running: %s\n",
+			time.Now().Format(time.RFC3339), pid, scheduleStr, cmdStr)
 		logFile.WriteString(logLine)
 		fmt.Print(logLine)
 
 		err = proc.Wait()
 		if err != nil {
-			logFile.WriteString(fmt.Sprintf("[%s] Parent PID: %d PID: %d Command failed: %v\n",
-				time.Now().Format(time.RFC3339), parentPid, childPid, err))
+			logFile.WriteString(fmt.Sprintf("[%s] PID: %d Command failed: %v\n",
+				time.Now().Format(time.RFC3339), pid, err))
 		}
 	}()
 }
