@@ -1,9 +1,6 @@
 jobs:
   - schedule: "*/1 * * * *"
-    command: "echo Job1: runs every minute"
+    command: "echo Job1: Jalan setiap menit"
 
-  - schedule: "0,30 * * * *"
-    command: "echo Job2: runs at 0 and 30 min of every hour"
-
-  - schedule: "15-45 * * * *"
-    command: "echo Job3: runs at min 15 to 45 of every hour"
+  - schedule: "0,30,55 * * * *"
+    command: "echo Job2: Jalan setiap menit ke 0, 30, 55 pada setiap jam"

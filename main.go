@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -27,6 +28,9 @@ type ParsedJob struct {
 	Schedule  string
 	Command   string
 }
+
+var logMutex sync.Mutex
+
 func stopBackground(pidStr string) error {
 	pidStr = strings.TrimSpace(pidStr)
 	pid, err := strconv.Atoi(pidStr)
@@ -295,8 +299,9 @@ func runCommand(scheduleStr string, cmdStr string) {
 
 		fields := strings.Fields(cmdStr)
 		if len(fields) == 0 {
-			logLine := fmt.Sprintf("[%s] Invalid command: empty\n", time.Now().Format(time.RFC3339))
-			logFile.WriteString(logLine)
+			logMutex.Lock()
+			logFile.WriteString(fmt.Sprintf("[%s] Invalid command: empty\n", time.Now().Format(time.RFC3339)))
+			logMutex.Unlock()
 			return
 		}
 
@@ -311,8 +316,10 @@ func runCommand(scheduleStr string, cmdStr string) {
 
 		err = proc.Start()
 		if err != nil {
-			logFile.WriteString(fmt.Sprintf("[%s] PID: %d PID: N/A Schedule: %s Command failed to start: %v\n",
+			logMutex.Lock()
+			logFile.WriteString(fmt.Sprintf("[%s] PID: %d Schedule: %s Command failed to start: %v\n",
 				time.Now().Format(time.RFC3339), os.Getpid(), scheduleStr, err))
+			logMutex.Unlock()
 			return
 		}
 
@@ -321,16 +328,22 @@ func runCommand(scheduleStr string, cmdStr string) {
 
 		logLine := fmt.Sprintf("[%s] PID: %d Schedule: %s Running: %s\n",
 			time.Now().Format(time.RFC3339), pid, scheduleStr, cmdStr)
+
+		logMutex.Lock()
 		logFile.WriteString(logLine)
+		logMutex.Unlock()
 		fmt.Print(logLine)
 
 		err = proc.Wait()
 		if err != nil {
+			logMutex.Lock()
 			logFile.WriteString(fmt.Sprintf("[%s] PID: %d Command failed: %v\n",
 				time.Now().Format(time.RFC3339), pid, err))
+			logMutex.Unlock()
 		}
 	}()
 }
+
 
 
 
