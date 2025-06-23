@@ -1,4 +1,5 @@
-# A Cron tool
+# A Job Scheduler tool
+inspired by cron and built with Golang
 
 ## How to build
 
